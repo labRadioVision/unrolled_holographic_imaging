@@ -1,0 +1,14 @@
+# Python >= 3.10
+
+# Core scientific stack
+numpy>=2.0
+scipy>=1.13
+matplotlib>=3.9
+
+# Deep learning (install the build matching your CUDA/CPU setup)
+torch>=2.0
+
+# GPU acceleration — required ONLY by the *_gpu.py scripts.
+# Install the CuPy wheel matching your CUDA version, e.g. cupy-cuda12x for CUDA 12.
+# The CPU scripts (no _gpu suffix) run without CuPy.
+cupy-cuda12x>=14.0

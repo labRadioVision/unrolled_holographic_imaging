@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Training artifacts
+checkpoints*/
+results*/
+*.log
+*.pt
+*.npz
+
+# Datasets: ignore .mat everywhere EXCEPT the bundled synthetic sets
+*.mat
+!synthetic_sets/
+!synthetic_sets/*.mat
+
+# Real measurement data (released later): keep the folder + its README only
+real_data/*.mat

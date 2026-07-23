@@ -100,6 +100,20 @@ NX, NY, NZ = len(X_IMG), len(Y_IMG), len(Z_IMG)
 # Configurazione
 # ===========================================================================
 
+# Fixed frequency (no real reference file)
+FREQ_GHZ = 2.45
+C        = 3.0e8
+MU0      = 4.0e-7 * np.pi
+BATCH_RX = 100
+
+# Synthetic RX grid (plane z=0)
+NX_RX, NY_RX = 162, 80
+RX_X0, RX_X1 = 0.02, 5.00
+RX_Y0, RX_Y1 = 0.02, 2.48
+
+# Train / validation split
+TRAIN_IDX = [0, 5, 6, 7, 8, 10]   # positions
+VAL_IDX   = [1, 2, 3, 4, 9]                 
 
 # Iperparametri (condivisi LISTA / W-LISTA)
 K           = 10

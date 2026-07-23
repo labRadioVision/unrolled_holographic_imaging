@@ -112,8 +112,8 @@ RX_X0, RX_X1 = 0.02, 5.00
 RX_Y0, RX_Y1 = 0.02, 2.48
 
 # Train / validation split
-TRAIN_IDX = [0, 1, 2, 3, 4, 5, 6, 7]   # 8 lateral positions
-VAL_IDX   = [8, 9, 10]                  # 3 depth positions
+TRAIN_IDX = [0, 5, 6, 7, 8, 10]   # positions
+VAL_IDX   = [1, 2, 3, 4, 9]                  # positions
 
 # Iperparametri (condivisi LISTA / W-LISTA)
 K           = 10

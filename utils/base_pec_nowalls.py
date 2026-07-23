@@ -23,7 +23,7 @@ The dataset folder is resolved automatically (synthetic_sets/), with an override
 via the HOLO_SYNTH_DIR environment variable.
 
 This module is not meant to be run directly: it is the base module (loaders +
-plotting) imported by run_wlista_pec_nowalls_gpu.py.
+plotting) imported by run_wlista_synthetic_pec.py.
 """
 
 import os, sys, time, argparse

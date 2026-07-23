@@ -1,33 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-run_wlista_muscle.py
-====================
-W-LISTA (baseline, no low-rank correction) on the muscle-tissue synthetic
-dataset (E_total_Ken_muscoloso.mat).
-
-Dataset: 11 positions, muscle phantom (DELTA_Z=1.5297 at 2.45 GHz).
-Incident field: E_inc.mat (keys E_total_freespace, E_phase_freespace).
-
-Position layout (holographic coordinates, FEKO->holo):
-  holo_x = feko_y + 2.510   holo_z = 3.317 - feko_x
-
-  hz=1.717 (feko_x=1.600): idx 0..7  - lateral, fixed depth
-  hz=1.427 (feko_x=1.890): idx 8     - centre, medium depth
-  hz=1.137 (feko_x=2.180): idx 9     - centre, deeper
-  hz=0.847 (feko_x=2.470): idx 10    - centre, shallower
-
-Train/val split:
-  TRAIN_IDX = list(range(N_pos))   - all positions
-  VAL_IDX   = [N_pos - 1]          - last position
-
-The files E_total_Ken_muscoloso.mat and E_inc.mat must be in synthetic_sets/.
+run_wlista_synthetic_adipose.py
+===============================
+W-LISTA (baseline, no low-rank correction) on the adipose-tissue synthetic
+dataset (E_total_Ken_grasso_nowalls.mat).
 
 Run:
-    python run_wlista_muscle.py > wlista_muscle.log 2>&1
+    python run_wlista_synthetic_adipose.py > wlista_adipose.log 2>&1
+    python run_wlista_synthetic_adipose.py --resume checkpoints_lista_ken_grasso/wlista_ken_grasso_ep005.pt
 
-    # resume from checkpoint
-    python run_wlista_muscle.py \\
-        --resume checkpoints_lista_ken_muscoloso/wlista_ken_muscoloso_ep005.pt
+The dataset E_total_Ken_grasso_nowalls.mat must be in synthetic_sets/.
 """
 
 import os, sys, time, argparse
@@ -47,26 +29,19 @@ from lista_holography_weighted import WLISTAHolography
 import inference_common as ic
 
 # ---------------------------------------------------------------------------
-# Override: data files
+# Override: data file (bundled in synthetic_sets/)
 # ---------------------------------------------------------------------------
 SYNTH_DIR   = os.path.join(SCRIPT_DIR, "synthetic_sets")
-ETOTAL_FILE = os.path.join(SYNTH_DIR, "E_total_Ken_muscoloso.mat")
-EINC_FILE   = os.path.join(SYNTH_DIR, "E_inc.mat")
-
+ETOTAL_FILE = os.path.join(SYNTH_DIR, "E_total_Ken_grasso_nowalls.mat")
 base.ETOTAL_FILE = ETOTAL_FILE
-base.EINC_FILE   = EINC_FILE
 base.SYNTH_DIR   = SYNTH_DIR
 
-for _f, _name in [(ETOTAL_FILE, "E_total_Ken_muscoloso.mat"),
-                  (EINC_FILE,   "E_inc.mat")]:
-    if not os.path.exists(_f):
-        raise FileNotFoundError(
-            f"File not found: {_f}\n"
-            f"Make sure '{_name}' is in {SYNTH_DIR}")
+if not os.path.exists(ETOTAL_FILE):
+    raise FileNotFoundError(
+        f"File not found: {ETOTAL_FILE}\n"
+        f"Make sure it is in {SYNTH_DIR}")
 
-# ---------------------------------------------------------------------------
-# Auto-detect number of positions and train/val split
-# ---------------------------------------------------------------------------
+# --- auto-detect number of positions ---
 _mat  = sio.loadmat(ETOTAL_FILE)
 _keys = [k for k in _mat if not k.startswith("_")]
 _n_pos, _k = None, _keys[0]
@@ -76,39 +51,34 @@ for _k in _keys:
         break
 if _n_pos is None:
     _n_pos = _mat[_keys[0]].shape[-1]
-print(f"[muscle] N_pos detected = {_n_pos}  (key: '{_k}')")
+print(f"[adipose] N_pos detected = {_n_pos}  (key: '{_k}')")
 
 base.TRAIN_IDX  = list(range(_n_pos))
 base.VAL_IDX    = [_n_pos - 1]
-base.POS_LABELS = [f"ken_muscoloso_pos{i:02d}" for i in range(_n_pos)]
+base.POS_LABELS = [f"ken_grasso_pos{i:02d}" for i in range(_n_pos)]
 
 # ---------------------------------------------------------------------------
 # Dedicated output folders
 # ---------------------------------------------------------------------------
-OUT_DIR   = os.path.join(SCRIPT_DIR, "results_synthetic_ken_muscoloso")
-CKPT_DIR  = os.path.join(SCRIPT_DIR, "checkpoints_lista_ken_muscoloso")
-ZTRUE_DIR = os.path.join(SCRIPT_DIR, "results_z_true_ken_muscoloso")
-os.makedirs(OUT_DIR,   exist_ok=True)
-os.makedirs(CKPT_DIR,  exist_ok=True)
-os.makedirs(ZTRUE_DIR, exist_ok=True)
-base.OUT_DIR   = OUT_DIR
-base.CKPT_DIR  = CKPT_DIR
-base.ZTRUE_DIR = ZTRUE_DIR
+OUT_DIR  = os.path.join(SCRIPT_DIR, "results_synthetic_ken_grasso")
+CKPT_DIR = os.path.join(SCRIPT_DIR, "checkpoints_lista_ken_grasso")
+os.makedirs(OUT_DIR,  exist_ok=True)
+os.makedirs(CKPT_DIR, exist_ok=True)
+base.OUT_DIR  = OUT_DIR
+base.CKPT_DIR = CKPT_DIR
 
 # ---------------------------------------------------------------------------
-# Hyper-parameters (same as the adipose baseline)
+# Hyper-parameters (identical to the synthetic W-LISTA baseline)
 # ---------------------------------------------------------------------------
 NX, NY, NZ  = base.NX, base.NY, base.NZ
 K           = base.K
 N_EPOCHS    = base.N_EPOCHS
-LR          = 1e-2    # reduced from base.LR=5e-2
-LR_W        = 2.5e-1  # reduced from base.LR_W
+LR          = 1e-2     # reduced from base.LR=5e-2 (higher LR looked too large)
+LR_W        = 2.5e-1   # reduced proportionally from base.LR_W=5e-1
 LAMBDA_INIT = base.LAMBDA_INIT
 L_EST       = base.L_EST
 W_LOG_CLAMP = base.W_LOG_CLAMP
 REF_EPOCH_START = 5
-
-# DELTA_Z = 1.5297+0j (muscle) - already set in the base module, no override
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -145,7 +115,6 @@ def train(op, b_tr, z_tr, b_va, z_va, ckpt_name, resume=None):
         {"params": [model.log_wx, model.log_wy, model.log_wz], "lr": LR_W},
     ])
     start_epoch, loss_history, val_history, best = 1, [], [], float("inf")
-
     if resume:
         ck = torch.load(resume, map_location=DEVICE, weights_only=False)
         model.load_state_dict(ck["model_state"])
@@ -160,20 +129,17 @@ def train(op, b_tr, z_tr, b_va, z_va, ckpt_name, resume=None):
     b_va = [x.to(DEVICE) for x in b_va]; z_va = [x.to(DEVICE) for x in z_va]
     N = len(b_tr)
 
-    REF_DIR = os.path.join(OUT_DIR, "epoch_recon"); os.makedirs(REF_DIR, exist_ok=True)
+    REF_DIR  = os.path.join(OUT_DIR, "epoch_recon"); os.makedirs(REF_DIR, exist_ok=True)
     b_ref    = b_va[0].clone() if b_va else b_tr[0].clone()
     z_ref    = (z_va[0] if b_va else z_tr[0]).detach().cpu().numpy()
     b_ref_np = b_ref.detach().cpu().numpy()
     z_mf_ref   = ic.run_matched_filter(op, b_ref_np)
     z_ista_ref = ic.run_ista(op, b_ref_np, K, LAMBDA_INIT, L_EST)
 
-    print(f"\n[W-LISTA Ken_muscoloso] K={K} epochs={start_epoch}->{N_EPOCHS} "
+    print(f"\n[W-LISTA Ken_grasso] K={K} epochs={start_epoch}->{N_EPOCHS} "
           f"N_train={N} N_val={len(b_va)} device={DEVICE}")
     print(f"  #params={model.num_params()}  lr={LR:.1e}  lr_w={LR_W:.1e}")
-    print(f"  Train idx: {base.TRAIN_IDX}")
-    print(f"  Val   idx: {base.VAL_IDX}")
 
-    ckpt = None
     for epoch in range(start_epoch, N_EPOCHS + 1):
         t0 = time.time(); model.train(); optim.zero_grad()
         agg = torch.zeros((), device=DEVICE)
@@ -217,8 +183,7 @@ def train(op, b_tr, z_tr, b_va, z_va, ckpt_name, resume=None):
             torch.save(ckpt, os.path.join(CKPT_DIR, f"{ckpt_name}_best.pt"))
             print(f"    [best] val={best:.4e}")
 
-    if ckpt is not None:
-        torch.save(ckpt, os.path.join(CKPT_DIR, f"{ckpt_name}.pt"))
+    torch.save(ckpt, os.path.join(CKPT_DIR, f"{ckpt_name}.pt"))
     print(f"\n  Best ckpt: {CKPT_DIR}/{ckpt_name}_best.pt  best={best:.4e}")
     return model, loss_history
 
@@ -226,18 +191,15 @@ def train(op, b_tr, z_tr, b_va, z_va, ckpt_name, resume=None):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--resume",     default=None,
-                    help="Checkpoint .pt da cui riprendere il training")
-    ap.add_argument("--infer-only", default=None,
-                    help="Skip training: load this checkpoint and run inference only")
+    ap.add_argument("--resume",     default=None)
+    ap.add_argument("--infer-only", default=None)
     args = ap.parse_args()
-    ckpt_name = "wlista_ken_muscoloso"
+    ckpt_name = "wlista_ken_grasso"
 
     t_start = time.time()
     print("=" * 68)
-    print(f"W-LISTA Ken_muscoloso  device={DEVICE}")
-    print(f"  Train idx {base.TRAIN_IDX}")
-    print(f"  Val   idx {base.VAL_IDX}")
+    print(f"W-LISTA Ken_grasso_nowalls  device={DEVICE}")
+    print(f"  Train idx {base.TRAIN_IDX}   Val idx {base.VAL_IDX}")
     print("=" * 68)
 
     b_tr_np, z_tr_np, k, omega, rx_ref = base.load_synthetic_dataset("wlista")

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-run_lorawlista_wfirst_dic2024.py
-================================
+run_lorawlista_wfirst_measurements.py
+=====================================
 LoRaW-LISTA training with the W-FIRST warm-up schedule.
 
 Warm-up (epochs 1..WARMUP_EPOCHS):
@@ -20,7 +20,7 @@ low-rank factors once the data term is active.
 
 Run
 ---
-  python run_lorawlista_wfirst_dic2024.py --rank 8 > wfirst.log 2>&1
+  python run_lorawlista_wfirst_measurements.py --rank 8 > wfirst.log 2>&1
 """
 
 import os, sys, time, argparse

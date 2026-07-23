@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-run_wlista_measurements_dic2024_gpu.py
-======================================
+run_wlista_measurements.py
+==========================
 Full-GPU training of W-LISTA / LISTA on the 8 real measurements (Nov-Dec 2024).
 
   - Fast holographic operator (HolographyOperatorFast, DLPack zero-copy), with
@@ -14,8 +14,8 @@ Full-GPU training of W-LISTA / LISTA on the 8 real measurements (Nov-Dec 2024).
 
 Run
 ---
-  python run_wlista_measurements_dic2024_gpu.py > wlista_dec2024_gpu.log 2>&1
-  python run_wlista_measurements_dic2024_gpu.py --model lista
+  python run_wlista_measurements.py > wlista_dec2024_gpu.log 2>&1
+  python run_wlista_measurements.py --model lista
 """
 
 import os, sys, time, argparse

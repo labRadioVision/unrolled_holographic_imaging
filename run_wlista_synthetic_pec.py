@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-run_wlista_pec_nowalls_gpu.py
-=============================
+run_wlista_synthetic_pec.py
+===========================
 Full-GPU training of W-LISTA / LISTA on the synthetic "nowalls" data (PEC,
 free space): E_total_freespace_nowalls.mat + E_total_Ken_PEC_nowalls.mat.
 
@@ -16,8 +16,8 @@ free space): E_total_freespace_nowalls.mat + E_total_Ken_PEC_nowalls.mat.
 
 Run
 ---
-  python run_wlista_pec_nowalls_gpu.py > wlista_synthetic_nowalls_gpu.log 2>&1
-  python run_wlista_pec_nowalls_gpu.py --model lista
+  python run_wlista_synthetic_pec.py > wlista_synthetic_nowalls_gpu.log 2>&1
+  python run_wlista_synthetic_pec.py --model lista
 """
 
 import os, sys, time, argparse, glob, re

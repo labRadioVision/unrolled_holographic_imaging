@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 """
 run_wlista_measurements_dic2024_gpu.py
-===================================
-Versione PULITA e FULL-GPU di run_wlista_measurements_dic2024.py
-(W-LISTA / LISTA sulle 8 misure REALI Nov-Dic 2024).
+======================================
+Full-GPU training of W-LISTA / LISTA on the 8 real measurements (Nov-Dec 2024).
 
-  - HolographyOperatorFast (DLPack zero-copy) + modello/dati su CUDA.
-  - Stessa loss (mag-MSE), stesso split (tutte in training, best su train loss),
-    holdout opzionale via VAL_HOLDOUT.
-  - Da REF_EPOCH_START salva per ogni epoca la recon di riferimento (misura
-    21_11_2024, centro) + MIP di MF/ISTA/modello in PNG/npz/mat.
-  - Riusa loader/plot dell'originale (import base_measurements_dic2024 as base2).
+  - Fast holographic operator (HolographyOperatorFast, DLPack zero-copy), with
+    model and data on CUDA.
+  - Magnitude-MSE loss; all measurements used for training, "best" on the train
+    loss, with an optional hold-out via VAL_HOLDOUT.
+  - From REF_EPOCH_START, saves per epoch the reference reconstruction
+    (measurement 21_11_2024, centred) and the MIP of MF/ISTA/model (PNG/npz/mat).
+  - Reuses the loaders/plotting of the base module (import base_measurements_dic2024 as base2).
 
 Run
 ---
-  .conda\\python.exe run_wlista_measurements_dic2024_gpu.py > wlista_dec2024_gpu.log 2>&1
-  .conda\\python.exe run_wlista_measurements_dic2024_gpu.py --model lista
+  python run_wlista_measurements_dic2024_gpu.py > wlista_dec2024_gpu.log 2>&1
+  python run_wlista_measurements_dic2024_gpu.py --model lista
 """
 
 import os, sys, time, argparse
@@ -45,9 +45,9 @@ LR, LR_W    = base2.LR, base2.LR_W
 LAMBDA_INIT, L_EST = base2.LAMBDA_INIT, base2.L_EST
 W_LOG_CLAMP = base2.W_LOG_CLAMP
 
-VAL_HOLDOUT = None        # es. 7 -> leave-one-out
+VAL_HOLDOUT = None        # e.g. 7 -> leave-one-out
 REF_EPOCH_START = 5
-REF_DATE = "21_11_2024"   # misura di riferimento (centro)
+REF_DATE = "21_11_2024"   # reference measurement (centred target)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -111,7 +111,7 @@ def train(op, b_list, z_list, model_type, ckpt_name, resume=None):
     b_t = [b_list[i].to(DEVICE) for i in range(len(b_list))]
     z_t = [z_list[i].to(DEVICE) for i in range(len(z_list))]
 
-    # --- caso reference per il monitoraggio per-epoca (misura centro) ---
+    # --- reference case for per-epoch monitoring (centred measurement) ---
     REF_DIR = os.path.join(OUT_DIR, "epoch_recon"); os.makedirs(REF_DIR, exist_ok=True)
     ridx   = base2.DATES.index(REF_DATE) if REF_DATE in base2.DATES else 0
     b_ref  = b_t[ridx]

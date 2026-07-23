@@ -1,26 +1,26 @@
 # -*- coding: utf-8 -*-
 """
 run_lorawlista_wfirst_dic2024.py
-=====================================
-LR-W-LISTA con strategia W-FIRST warmup.
+================================
+LoRaW-LISTA training with the W-FIRST warm-up schedule.
 
-Warmup (epoche 1-WARMUP_EPOCHS):
-  - solo W + mu + lambda vengono addestrati  (= W-LISTA puro)
-  - UV congelato (U=0, V=0 => T_eff = T, nessuna correzione low-rank)
-  => il modello apprende prima i pesi W stabili (senza BETA_DATA che
-     causa il collapse), poi introduce la correzione low-rank
+Warm-up (epochs 1..WARMUP_EPOCHS):
+  - only W + mu + lambda are trained (= pure W-LISTA);
+  - the low-rank factors are frozen (U=0, V=0 => T_eff = T, no correction).
+  => the model first learns stable spatial weights W (without the data term
+     BETA_DATA that would cause a collapse), then introduces the low-rank correction.
 
-Dopo warmup (epoca WARMUP_EPOCHS+1 in poi):
-  - si aggiunge il gruppo UV all'ottimizzatore
-  - tutti i parametri vengono addestrati insieme
+After warm-up (epoch WARMUP_EPOCHS+1 onward):
+  - the low-rank group U,V is added to the optimizer;
+  - all parameters are trained jointly.
 
-Motivazione: W-LISTA puro (senza UV) non collassa perche' non ha BETA_DATA.
-Stabilizzando prima W, evitiamo che W interagisca con UV in modo incontrollato
-quando il data term e' gia' attivo.
+Rationale: pure W-LISTA (without U,V) does not collapse because it has no data
+term; stabilizing W first prevents it from interacting uncontrollably with the
+low-rank factors once the data term is active.
 
 Run
 ---
-  .conda\\python.exe run_lorawlista_wfirst_dic2024.py --rank 8 > wfirst.log 2>&1
+  python run_lorawlista_wfirst_dic2024.py --rank 8 > wfirst.log 2>&1
 """
 
 import os, sys, time, argparse
@@ -51,7 +51,7 @@ LAMBDA_INIT, L_EST = base2.LAMBDA_INIT, base2.L_EST
 
 RANK          = 8
 LR_LR         = 1e-5
-WARMUP_EPOCHS = 6      # epoche con solo W+mu+lambda (= W-LISTA puro)
+WARMUP_EPOCHS = 6      # epochs with only W+mu+lambda (= pure W-LISTA)
 ALPHA_Z       = 1.0
 BETA_DATA     = 1e-3
 GAMMA_REG     = 1e-1
@@ -164,7 +164,7 @@ def loss_terms(model, op, b, z_true):
 
 
 def _build_optim_warmup(model):
-    """Ottimizzatore fase warmup: solo W + mu + lambda (= W-LISTA puro). UV congelato."""
+    """Warm-up optimizer: only W + mu + lambda (= pure W-LISTA); U,V frozen."""
     return torch.optim.Adam([
         {"params": [model.log_mu, model.log_lambda], "lr": LR},
         {"params": [model.log_wx, model.log_wy, model.log_wz], "lr": LR_W},
@@ -172,7 +172,7 @@ def _build_optim_warmup(model):
 
 
 def _build_optim_full(model):
-    """Ottimizzatore fase full: aggiunge UV al gruppo gia' esistente."""
+    """Full-phase optimizer: adds U,V to the existing parameter group."""
     return torch.optim.Adam([
         {"params": [model.log_mu, model.log_lambda], "lr": LR},
         {"params": [model.log_wx, model.log_wy, model.log_wz], "lr": LR_W},
@@ -239,10 +239,10 @@ def train(op, b_list, z_list, resume=None):
           f"GAMMA_REG={GAMMA_REG}  refs={REF_DATES}\n")
 
     for epoch in range(start_epoch, N_EPOCHS + 1):
-        # Transizione warmup -> full a WARMUP_EPOCHS+1
+        # Transition warm-up -> full at WARMUP_EPOCHS+1
         if in_warmup and epoch > WARMUP_EPOCHS:
-            print(f"\n  [W-first] Warmup completato a ep{epoch-1}. "
-                  f"Aggiungo UV all'ottimizzatore (lr_LR={LR_LR:.1e}).\n")
+            print(f"\n  [W-first] Warm-up completed at ep{epoch-1}. "
+                  f"Adding U,V to the optimizer (lr_LR={LR_LR:.1e}).\n")
             optim = _build_optim_full(model)
             in_warmup = False
 

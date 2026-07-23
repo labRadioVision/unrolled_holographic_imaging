@@ -1,33 +1,32 @@
 # -*- coding: utf-8 -*-
 """
 run_wlista_muscle.py
-===========================
-W-LISTA (baseline, senza correzione low-rank) su E_total_Ken_muscoloso.mat.
+====================
+W-LISTA (baseline, no low-rank correction) on the muscle-tissue synthetic
+dataset (E_total_Ken_muscoloso.mat).
 
-Dataset: 11 posizioni, fantasma muscolo (DELTA_Z=1.5297 a 2.45 GHz).
-Campo incidente: E_inc.mat (chiavi E_total_freespace, E_phase_freespace).
+Dataset: 11 positions, muscle phantom (DELTA_Z=1.5297 at 2.45 GHz).
+Incident field: E_inc.mat (keys E_total_freespace, E_phase_freespace).
 
-Struttura posizioni (coordinate olografiche, FEKO->holo):
+Position layout (holographic coordinates, FEKO->holo):
   holo_x = feko_y + 2.510   holo_z = 3.317 - feko_x
 
-  hz=1.717 (feko_x=1.600): idx 0..7  — laterali a profondità fissa
-  hz=1.427 (feko_x=1.890): idx 8     — centro, profondità media
-  hz=1.137 (feko_x=2.180): idx 9     — centro, più profondo
-  hz=0.847 (feko_x=2.470): idx 10    — centro, più superficiale
+  hz=1.717 (feko_x=1.600): idx 0..7  - lateral, fixed depth
+  hz=1.427 (feko_x=1.890): idx 8     - centre, medium depth
+  hz=1.137 (feko_x=2.180): idx 9     - centre, deeper
+  hz=0.847 (feko_x=2.470): idx 10    - centre, shallower
 
-Split train/val (identico a ken_grasso):
-  TRAIN_IDX = list(range(N_pos))   — tutte le posizioni
-  VAL_IDX   = [N_pos - 1]          — ultima posizione
+Train/val split:
+  TRAIN_IDX = list(range(N_pos))   - all positions
+  VAL_IDX   = [N_pos - 1]          - last position
 
-I file E_total_Ken_muscoloso.mat e E_inc.mat devono essere in
-Dataset TUM/sinthetic_data/ (sottocartella della cartella di questo script).
+The files E_total_Ken_muscoloso.mat and E_inc.mat must be in synthetic_sets/.
 
 Run:
-    nohup python3 run_wlista_muscle.py > wlista_ken_muscoloso.log 2>&1 &
-    tail -f wlista_ken_muscoloso.log
+    python run_wlista_muscle.py > wlista_muscle.log 2>&1
 
-    # riprendi da checkpoint
-    python3 run_wlista_muscle.py \\
+    # resume from checkpoint
+    python run_wlista_muscle.py \\
         --resume checkpoints_lista_ken_muscoloso/wlista_ken_muscoloso_ep005.pt
 """
 
@@ -48,7 +47,7 @@ from lista_holography_weighted import WLISTAHolography
 import inference_common as ic
 
 # ---------------------------------------------------------------------------
-# Override: file dati
+# Override: data files
 # ---------------------------------------------------------------------------
 SYNTH_DIR   = os.path.join(SCRIPT_DIR, "synthetic_sets")
 ETOTAL_FILE = os.path.join(SYNTH_DIR, "E_total_Ken_muscoloso.mat")
@@ -62,11 +61,11 @@ for _f, _name in [(ETOTAL_FILE, "E_total_Ken_muscoloso.mat"),
                   (EINC_FILE,   "E_inc.mat")]:
     if not os.path.exists(_f):
         raise FileNotFoundError(
-            f"File non trovato: {_f}\n"
-            f"Assicurati che '{_name}' sia in {SYNTH_DIR}")
+            f"File not found: {_f}\n"
+            f"Make sure '{_name}' is in {SYNTH_DIR}")
 
 # ---------------------------------------------------------------------------
-# Auto-detect numero posizioni e split train/val (identico a ken_grasso)
+# Auto-detect number of positions and train/val split
 # ---------------------------------------------------------------------------
 _mat  = sio.loadmat(ETOTAL_FILE)
 _keys = [k for k in _mat if not k.startswith("_")]
@@ -77,14 +76,14 @@ for _k in _keys:
         break
 if _n_pos is None:
     _n_pos = _mat[_keys[0]].shape[-1]
-print(f"[Ken_muscoloso] N_pos rilevato = {_n_pos}  (chiave: '{_k}')")
+print(f"[muscle] N_pos detected = {_n_pos}  (key: '{_k}')")
 
 base.TRAIN_IDX  = list(range(_n_pos))
 base.VAL_IDX    = [_n_pos - 1]
 base.POS_LABELS = [f"ken_muscoloso_pos{i:02d}" for i in range(_n_pos)]
 
 # ---------------------------------------------------------------------------
-# Cartelle output dedicate
+# Dedicated output folders
 # ---------------------------------------------------------------------------
 OUT_DIR   = os.path.join(SCRIPT_DIR, "results_synthetic_ken_muscoloso")
 CKPT_DIR  = os.path.join(SCRIPT_DIR, "checkpoints_lista_ken_muscoloso")
@@ -97,19 +96,19 @@ base.CKPT_DIR  = CKPT_DIR
 base.ZTRUE_DIR = ZTRUE_DIR
 
 # ---------------------------------------------------------------------------
-# Iperparametri (identici a ken_grasso)
+# Hyper-parameters (same as the adipose baseline)
 # ---------------------------------------------------------------------------
 NX, NY, NZ  = base.NX, base.NY, base.NZ
 K           = base.K
 N_EPOCHS    = base.N_EPOCHS
-LR          = 1e-2    # ridotto rispetto a base.LR=5e-2
-LR_W        = 2.5e-1  # ridotto rispetto a base.LR_W (stesso valore di ken_grasso)
+LR          = 1e-2    # reduced from base.LR=5e-2
+LR_W        = 2.5e-1  # reduced from base.LR_W
 LAMBDA_INIT = base.LAMBDA_INIT
 L_EST       = base.L_EST
 W_LOG_CLAMP = base.W_LOG_CLAMP
 REF_EPOCH_START = 5
 
-# DELTA_Z = 1.5297+0j (muscolo) — già impostato nel modulo base, nessun override
+# DELTA_Z = 1.5297+0j (muscle) - already set in the base module, no override
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -230,7 +229,7 @@ if __name__ == "__main__":
     ap.add_argument("--resume",     default=None,
                     help="Checkpoint .pt da cui riprendere il training")
     ap.add_argument("--infer-only", default=None,
-                    help="Salta training: carica questo checkpoint e fai solo inference")
+                    help="Skip training: load this checkpoint and run inference only")
     args = ap.parse_args()
     ckpt_name = "wlista_ken_muscoloso"
 

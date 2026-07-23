@@ -2,45 +2,44 @@
 """
 holography_operator_fast.py
 ===========================
-Versione accelerata di HolographyOperator.
+Accelerated version of HolographyOperator.
 
-Unica differenza funzionale rispetto a holography_operator.py:
-    le interfacce torch (A_torch / AH_torch) NON passano piu' dalla CPU.
+The only functional difference w.r.t. holography_operator.py is that the torch
+interfaces (A_torch / AH_torch) no longer round-trip through the CPU.
 
-Nel codice originale ogni matvec faceva:
-    torch (CUDA) -> .cpu().numpy() -> cupy -> calcolo -> cp.asnumpy() -> torch
-cioe' DUE copie GPU<->host per ogni applicazione di A o A^H, ripetute
-K*2 volte per layer, per ogni scena, per ogni epoca. E' il collo di bottiglia
-confermato (~3 h/epoca).
+In the original code every matvec did:
+    torch (CUDA) -> .cpu().numpy() -> cupy -> compute -> cp.asnumpy() -> torch
+i.e. TWO GPU<->host copies per application of A or A^H, repeated 2K times per
+layer, per scene, per epoch -- the confirmed bottleneck (~3 h/epoch).
 
-Qui usiamo DLPack per condividere la memoria GPU a costo zero (zero-copy)
-tra torch e cupy. Il kernel di Green e il calcolo restano IDENTICI al
-baseline (complex128 internamente), quindi i risultati numerici sono gli
-stessi: cambia solo la velocita'.
+Here we use DLPack to share GPU memory at zero cost (zero-copy) between torch
+and cupy. The Green kernel and the computation are IDENTICAL to the baseline
+(complex128 internally), so the numerical results are the same: only the speed
+changes.
 
-Dual-path:
-  - input torch su CUDA  -> percorso DLPack zero-copy (training veloce)
-  - input torch su CPU   -> fallback numpy (identico all'originale), utile
-                            per inferenza/plot quando il modello e' su CPU.
+Dual path:
+  - torch input on CUDA -> DLPack zero-copy path (fast training)
+  - torch input on CPU  -> numpy fallback (identical to the original), useful
+                           for inference/plotting when the model is on CPU.
 
-CAVEAT STREAM (leggere se i risultati sembrano "rumore"):
-  torch e cupy usano stream CUDA diversi. Per evitare race condition nello
-  zero-copy facciamo girare le operazioni cupy sullo stream corrente di torch
-  (cp.cuda.ExternalStream). Se su una particolare combinazione di versioni
-  questo desse problemi, decommentare il fallback `torch.cuda.synchronize()`
-  marcato sotto, oppure usare USE_TORCH_STREAM = False.
+STREAM CAVEAT (read if the results look like "noise"):
+  torch and cupy use different CUDA streams. To avoid race conditions in the
+  zero-copy path we run the cupy ops on the current torch stream
+  (cp.cuda.ExternalStream). If this causes problems on a particular version
+  combination, uncomment the `torch.cuda.synchronize()` fallback marked below,
+  or set USE_TORCH_STREAM = False.
 
-Drop-in: stessa firma del costruttore e degli stessi metodi.
+Drop-in: same constructor signature and same methods.
 """
 
 import cupy  as cp
 import numpy as np
 import torch
 
-# Se True, le chiamate cupy girano sullo stream corrente di torch (corretto e
-# veloce). Se si sospettano race, mettere False per usare la sincronizzazione
-# esplicita (piu' lento ma a prova di bomba).
-USE_TORCH_STREAM = False   # sync esplicito: piu' lento ma a prova di deadlock (vedi hang sweep)
+# If True, cupy calls run on the current torch stream (correct and fast).
+# If races are suspected, set False to use explicit synchronization
+# (slower but rock-solid).
+USE_TORCH_STREAM = False   # explicit sync: slower but deadlock-proof
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +155,7 @@ class HolographyOperatorFast:
         return result
 
     def A_np(self, z_np):
-        """A su numpy-in/out (per baseline unificati con il backend numpy)."""
+        """A with numpy in/out (for baselines unified with the numpy backend)."""
         return cp.asnumpy(self.A(cp.asarray(z_np)))
 
     def AH_np(self, b_np):
@@ -175,7 +174,7 @@ class HolographyOperatorFast:
         return L
 
     # ------------------------------------------------------------------
-    # PyTorch interface (gradient-aware, zero-copy su CUDA)
+    # PyTorch interface (gradient-aware, zero-copy on CUDA)
     # ------------------------------------------------------------------
     def A_torch(self, z: torch.Tensor) -> torch.Tensor:
         return _ApplyA.apply(z, self)

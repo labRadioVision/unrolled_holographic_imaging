@@ -1,29 +1,29 @@
 # -*- coding: utf-8 -*-
 """
-run_wlista_synthetic_nowalls.py
-===============================
-LISTA / W-LISTA su dati sintetici "nowalls" (PEC, free-space, no pareti).
+base_pec_nowalls.py
+===================
+Base module (data loaders + plotting) for LISTA / W-LISTA on the synthetic
+"nowalls" data (PEC, free space, no walls).
 
-Variante AUTOCONTENUTA di run_wlista_synthetic.py: non richiede il file di
-riferimento reale (empty_20_11_2024.mat). La geometria RX e' generata
-sinteticamente (griglia 162x80 sul piano z=0) e la frequenza e' fissata
-(FREQ_GHZ = 2.45), esattamente come run_mf_nowalls_cpu.py.
+Self-contained: it does not require a real reference file. The RX geometry is
+generated synthetically (162x80 grid on the plane z=0) and the frequency is
+fixed (FREQ_GHZ = 2.45).
 
-Dataset (Dataset TUM/sinthetic_data/):
-  E_total_freespace_nowalls.mat  -- campo incidente / free-space (162,80)
-        chiavi: E_total_freespace, E_phase_freespace
-  E_total_Ken_PEC_nowalls.mat    -- campo totale (162,80,11), 11 posizioni
-        chiavi: E_mag_total_mann, E_phase_total_mann, positions_mann (11,2)
+Dataset (synthetic_sets/):
+  E_total_freespace_nowalls.mat  -- incident / free-space field (162,80)
+        keys: E_total_freespace, E_phase_freespace
+  E_total_Ken_PEC_nowalls.mat    -- total field (162,80,11), 11 positions
+        keys: E_mag_total_mann, E_phase_total_mann, positions_mann (11,2)
 
-Coordinate FEKO -> olografiche (come run_mf_nowalls_cpu.py):
+FEKO -> holographic coordinates:
   holo_x = TX_X + FEKO_y          (TX_X = 2.510)
   holo_z = FEKO_Z_WALL - FEKO_x   (FEKO_Z_WALL = 3.317)
 
-NB: la cartella dataset si risolve automaticamente (../Dataset TUM/...),
-con override tramite variabile d'ambiente HOLO_SYNTH_DIR.
+The dataset folder is resolved automatically (synthetic_sets/), with an override
+via the HOLO_SYNTH_DIR environment variable.
 
-Questo modulo NON va lanciato direttamente: e' il modulo base (loader + plot)
-importato da run_wlista_synthetic_nowalls_gpu.py.
+This module is not meant to be run directly: it is the base module (loaders +
+plotting) imported by run_wlista_pec_nowalls_gpu.py.
 """
 
 import os, sys, time, argparse
@@ -35,10 +35,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
-# Importazioni GPU — opzionali: falliscono silenziosamente su macchine
-# senza CUDA. Le funzioni di training che le usano daranno errore a
-# runtime se chiamate senza GPU, ma le costanti e i loader restano
-# disponibili per l'inferenza CPU.
+# GPU imports - optional: they fail silently on machines without CUDA. The
+# training functions that use them will error at runtime if called without a
+# GPU, but the constants and loaders stay available for CPU inference.
 try:
     import cupy as cp
     from holography_operator       import HolographyOperator
@@ -63,9 +62,9 @@ SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
 
 
 def _find_synth_dir():
-    """Risolve la cartella dataset (override con HOLO_SYNTH_DIR)."""
+    """Resolve the dataset folder (override with HOLO_SYNTH_DIR)."""
     env = os.environ.get("HOLO_SYNTH_DIR")
-    # Priorita': HOLO_SYNTH_DIR > cartella LOCALE (bundled nell'export) > parent.
+    # Priority: HOLO_SYNTH_DIR > local folder (bundled) > parent.
     candidates = ([env] if env else []) + [
         os.path.join(SCRIPT_DIR, "..", "synthetic_sets"),
         os.path.join(SCRIPT_DIR, "synthetic_sets"),
@@ -101,33 +100,33 @@ NX, NY, NZ = len(X_IMG), len(Y_IMG), len(Z_IMG)
 # Configurazione
 # ===========================================================================
 
-# Frequenza fissata (nessun file reference reale) — come run_mf_nowalls_cpu.py
+# Fixed frequency (no real reference file)
 FREQ_GHZ = 2.45
 C        = 3.0e8
 MU0      = 4.0e-7 * np.pi
 BATCH_RX = 100
 
-# Griglia RX sintetica (piano z=0), come run_mf_nowalls_cpu.py
+# Synthetic RX grid (plane z=0)
 NX_RX, NY_RX = 162, 80
 RX_X0, RX_X1 = 0.02, 5.00
 RX_Y0, RX_Y1 = 0.02, 2.48
 
 # Train / validation split
-TRAIN_IDX = [0, 1, 2, 3, 4, 5, 6, 7]   # 8 posizioni laterali
-VAL_IDX   = [8, 9, 10]                  # 3 posizioni in profondita'
+TRAIN_IDX = [0, 1, 2, 3, 4, 5, 6, 7]   # 8 lateral positions
+VAL_IDX   = [8, 9, 10]                  # 3 depth positions
 
 # Iperparametri (condivisi LISTA / W-LISTA)
 K           = 10
 N_EPOCHS    = 30
 LR          = 5e-2
 LAMBDA_INIT = 1e-4
-L_EST       = 1.141e4   # riusa stima dal dataset reale (stessa geometria)
+L_EST       = 1.141e4   # reuses the estimate from the real dataset (same geometry)
 
 # W-LISTA only
 LR_W        = 2.5e-2
 W_LOG_CLAMP = 4.0
 
-# Contrasto dielettrico (tessuto soft/muscolo a 2.45 GHz)
+# Dielectric contrast (soft tissue/muscle at 2.45 GHz)
 DELTA_Z = complex(1.5297, 0.0)
 
 # z_true scaling: synthetic MF output is ~1.8e+03, z_true physical peak is 1.53
@@ -135,12 +134,12 @@ DELTA_Z = complex(1.5297, 0.0)
 # Set to None to use raw physical contrast.
 ZTRUE_SCALE = None   # not needed after b normalisation by |E_inc|_mean (~2.7x residual ratio)
 
-# Coordinate mapping FEKO -> olografiche (come run_mf_nowalls_cpu.py)
+# Coordinate mapping FEKO -> holographic
 FEKO_Z_WALL = 3.317   # holo_z = FEKO_Z_WALL - FEKO_x
 FEKO_X_OFF  = 2.510   # holo_x = FEKO_y + FEKO_X_OFF  (TX_X)
 
-# Label posizioni (per plot / nomi file). Le 11 posizioni nowalls sono
-# generiche: i nomi servono solo per i file di output / cache z_true.
+# Position labels (for plots / file names). The 11 nowalls positions are
+# generic: the names are only used for the output files / z_true cache.
 POS_LABELS = [f"nowalls_pos{i+1:02d}" for i in range(11)]
 
 # ===========================================================================
@@ -148,7 +147,7 @@ POS_LABELS = [f"nowalls_pos{i+1:02d}" for i in range(11)]
 # ===========================================================================
 
 def feko_to_holo(feko_x, feko_y):
-    """Converte posizione manichino FEKO -> coordinate olografiche (holo_x, holo_z)."""
+    """Convert a FEKO phantom position -> holographic coordinates (holo_x, holo_z)."""
     return feko_y + FEKO_X_OFF, FEKO_Z_WALL - feko_x
 
 
@@ -178,16 +177,16 @@ def _freq_consts():
 
 def _load_complex(mat_dict, mag_key, phase_key):
     """
-    Ricostruisce un campo complesso da modulo e fase (in radianti):
+    Rebuild a complex field from magnitude and phase (in radians):
         E_complex = mag * exp(j * phase)
-    Funziona sia se le chiavi esistono entrambe (nuovo formato mag+phase)
-    sia se esiste solo il campo già complesso (formato legacy).
+    Works both when the two keys exist (new mag+phase format) and when only the
+    already-complex field is present (legacy format).
     """
     if mag_key in mat_dict and phase_key in mat_dict:
         mag   = mat_dict[mag_key].astype(np.float64)
         phase = mat_dict[phase_key].astype(np.float64)
         return (mag * np.exp(1j * phase)).astype(np.complex128)
-    # fallback: cerca la prima chiave disponibile (formato legacy)
+    # fallback: use the first available key (legacy format)
     keys = [k for k in mat_dict if not k.startswith("_")]
     raw  = mat_dict[keys[0]]
     print(f"  [NOTE] mag/phase keys not found — using '{keys[0]}' as-is")
@@ -196,7 +195,7 @@ def _load_complex(mat_dict, mag_key, phase_key):
 
 def load_synthetic_dataset(model_type="wlista"):
     """
-    Carica i .mat nowalls (E_total_freespace + E_total_Ken_PEC, modulo+fase).
+    Load the nowalls .mat files (E_total_freespace + E_total_Ken_PEC, magnitude+phase).
     Ritorna (b_list, z_list, k, omega, rx_ref) per gli indici TRAIN_IDX.
     """
     print("Loading synthetic nowalls dataset ...")
@@ -210,11 +209,11 @@ def load_synthetic_dataset(model_type="wlista"):
     einc_mat  = sio.loadmat(EINC_FILE)
     etotal_mat = sio.loadmat(ETOTAL_FILE)
 
-    # --- campo incidente: mag * exp(j*phase) ---
+    # --- incident field: mag * exp(j*phase) ---
     E_inc     = _load_complex(einc_mat,
                               mag_key="E_total_freespace",
                               phase_key="E_phase_freespace")  # (162, 80)
-    # --- campo totale: mag * exp(j*phase) ---
+    # --- total field: mag * exp(j*phase) ---
     E_mag_tot  = etotal_mat["E_mag_total_mann"]               # (162, 80, 11)
     E_pha_tot  = etotal_mat["E_phase_total_mann"]             # (162, 80, 11)
     E_total    = (E_mag_tot * np.exp(1j * E_pha_tot)).astype(np.complex128)
@@ -223,7 +222,7 @@ def load_synthetic_dataset(model_type="wlista"):
     if E_inc.shape != E_total.shape[:2]:
         raise ValueError(f"Shape mismatch: E_inc {E_inc.shape} vs E_total {E_total.shape[:2]}")
 
-    # Frequenza fissata (nessun file reference reale)
+    # Fixed frequency (no real reference file)
     f0, k, omega = _freq_consts()
     print(f"  Frequency : {f0/1e9:.4f} GHz  (FREQ_GHZ={FREQ_GHZ})")
     print(f"  E_total   : {E_total.shape}  complex128")
@@ -236,14 +235,14 @@ def load_synthetic_dataset(model_type="wlista"):
         holo_x, holo_z = feko_to_holo(feko_x, feko_y)
         label = POS_LABELS[idx]
 
-        # Campo diffuso normalizzato per |E_inc|_mean
+        # Scattered field normalized by |E_inc|_mean
         E_inc_mean = float(np.abs(E_inc).mean())
         b_np = ((E_total[:, :, idx] - E_inc) / E_inc_mean).ravel().astype(np.complex64)
 
         print(f"  [{idx:2d}] {label}  holo_x={holo_x:.3f}m  holo_z={holo_z:.3f}m  "
               f"|b|_max={np.abs(b_np).max():.3e}")
 
-        # z_true con modello corpo parametrico
+        # z_true from the parametric body model
         z_true_path = os.path.join(ZTRUE_DIR, f"z_true_{label}.npz")
         if os.path.exists(z_true_path):
             z_true = np.load(z_true_path)["z_true"].astype(np.complex64)
@@ -271,14 +270,14 @@ def load_synthetic_dataset(model_type="wlista"):
         b_list.append(b_np)
         z_list.append(z_true)
 
-    # Geometria RX sintetica (niente file reale)
+    # Synthetic RX geometry (no real file)
     rx_ref = make_rx_ref()
     print(f"\n  Loaded {len(TRAIN_IDX)} training samples")
     return b_list, z_list, k, omega, rx_ref
 
 
 def load_validation_data(rx_ref, k):
-    """Carica le N_val posizioni di validazione."""
+    """Load the N_val validation positions."""
     einc_mat   = sio.loadmat(EINC_FILE)
     etotal_mat = sio.loadmat(ETOTAL_FILE)
     E_inc      = _load_complex(einc_mat,
@@ -636,7 +635,7 @@ def plot_results(b_list, z_list, labels, model, op, loss_history,
     plt.close("all")
     print(f"  Saved plots in {OUT_DIR}/  (prefix: {tag})")
 
-    # salva .mat per ogni campione
+    # save a .mat for each sample
     for lbl, z_mf, z_net in zip(labels, z_mf_list, z_net_list):
         mat_path = os.path.join(OUT_DIR, f"{ckpt_name}_{lbl}_z.mat")
         sio.savemat(mat_path, {
@@ -660,7 +659,7 @@ if __name__ == "__main__":
     parser.add_argument("--resume", default=None,
                         help="Checkpoint .pt da cui riprendere il training")
     parser.add_argument("--infer-only", default=None,
-                        help="Salta training: carica questo checkpoint e fai solo inference")
+                        help="Skip training: load this checkpoint and run inference only")
     parser.add_argument("--infer-pos", nargs="+", type=int, default=None,
                         help="Indici posizioni per inference (0-10). Default: train+val")
     args = parser.parse_args()
@@ -675,9 +674,9 @@ if __name__ == "__main__":
     print(f"  Val   idx : {VAL_IDX}")
     print("=" * 70)
 
-    # --- carica dati di training ---
+    # --- load training data ---
     if args.infer_only and args.infer_pos is not None:
-        # solo geometria RX sintetica + frequenza fissa
+        # only synthetic RX geometry + fixed frequency
         f0, k, omega = _freq_consts()
         rx_ref = make_rx_ref()
         b_train, z_train = [], []
@@ -693,7 +692,7 @@ if __name__ == "__main__":
         loss_history = list(ckpt.get("loss_history", [ckpt["loss"]]))
         print(f"  Loaded epoch={ckpt['epoch']}  loss={ckpt['loss']:.4e}")
 
-        # quali posizioni inferire?
+        # which positions to infer?
         if args.infer_pos is not None:
             all_idx = args.infer_pos
         else:
@@ -744,7 +743,7 @@ if __name__ == "__main__":
         plot_results(b_val, z_val, val_labels, model, op, loss_history,
                      model_type, ckpt_name, split_tag="val")
 
-        # salva risultati globali
+        # save global results
         out_npz = os.path.join(OUT_DIR, f"{ckpt_name}_results.npz")
         npz_data = dict(
             loss_history=np.array(loss_history),

@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 run_wlista_adipose.py
-========================
-W-LISTA (baseline, senza correzione low-rank) su E_total_Ken_grasso_nowalls.mat.
+=====================
+W-LISTA (baseline, no low-rank correction) on the adipose-tissue synthetic
+dataset (E_total_Ken_grasso_nowalls.mat).
 
-Copia questo file nella stessa cartella degli altri moduli (holography_operator_fast.py,
-lista_holography_weighted.py, run_wlista_pec_nowalls.py, inference_common.py) ed esegui:
-
-    python run_wlista_adipose.py > wlista_ken_grasso.log 2>&1
+Run:
+    python run_wlista_adipose.py > wlista_adipose.log 2>&1
     python run_wlista_adipose.py --resume checkpoints_lista_ken_grasso/wlista_ken_grasso_ep005.pt
 
-Il file E_total_Ken_grasso_nowalls.mat deve essere in Dataset TUM/sinthetic_data/
-(sottocartella della cartella in cui si trova questo script).
+The dataset E_total_Ken_grasso_nowalls.mat must be in synthetic_sets/.
 """
 
 import os, sys, time, argparse
@@ -31,7 +29,7 @@ from lista_holography_weighted import WLISTAHolography
 import inference_common as ic
 
 # ---------------------------------------------------------------------------
-# Override: file dati (Dataset TUM è DENTRO questa cartella)
+# Override: data file (bundled in synthetic_sets/)
 # ---------------------------------------------------------------------------
 SYNTH_DIR   = os.path.join(SCRIPT_DIR, "synthetic_sets")
 ETOTAL_FILE = os.path.join(SYNTH_DIR, "E_total_Ken_grasso_nowalls.mat")
@@ -40,10 +38,10 @@ base.SYNTH_DIR   = SYNTH_DIR
 
 if not os.path.exists(ETOTAL_FILE):
     raise FileNotFoundError(
-        f"File non trovato: {ETOTAL_FILE}\n"
-        f"Assicurati che sia in {SYNTH_DIR}")
+        f"File not found: {ETOTAL_FILE}\n"
+        f"Make sure it is in {SYNTH_DIR}")
 
-# --- auto-detect numero di posizioni ---
+# --- auto-detect number of positions ---
 _mat  = sio.loadmat(ETOTAL_FILE)
 _keys = [k for k in _mat if not k.startswith("_")]
 _n_pos, _k = None, _keys[0]
@@ -53,14 +51,14 @@ for _k in _keys:
         break
 if _n_pos is None:
     _n_pos = _mat[_keys[0]].shape[-1]
-print(f"[Ken_grasso] N_pos rilevato = {_n_pos}  (chiave: '{_k}')")
+print(f"[adipose] N_pos detected = {_n_pos}  (key: '{_k}')")
 
 base.TRAIN_IDX  = list(range(_n_pos))
 base.VAL_IDX    = [_n_pos - 1]
 base.POS_LABELS = [f"ken_grasso_pos{i:02d}" for i in range(_n_pos)]
 
 # ---------------------------------------------------------------------------
-# Cartelle output dedicate
+# Dedicated output folders
 # ---------------------------------------------------------------------------
 OUT_DIR  = os.path.join(SCRIPT_DIR, "results_synthetic_ken_grasso")
 CKPT_DIR = os.path.join(SCRIPT_DIR, "checkpoints_lista_ken_grasso")
@@ -70,13 +68,13 @@ base.OUT_DIR  = OUT_DIR
 base.CKPT_DIR = CKPT_DIR
 
 # ---------------------------------------------------------------------------
-# Iperparametri (identici al baseline W-LISTA synthetic)
+# Hyper-parameters (identical to the synthetic W-LISTA baseline)
 # ---------------------------------------------------------------------------
 NX, NY, NZ  = base.NX, base.NY, base.NZ
 K           = base.K
 N_EPOCHS    = base.N_EPOCHS
-LR          = 1e-2   # era base.LR=5e-2: ridotto, LR sembrava troppo grande
-LR_W        = 2.5e-1   # era base.LR_W=5e-1: ridotto in proporzione
+LR          = 1e-2     # reduced from base.LR=5e-2 (higher LR looked too large)
+LR_W        = 2.5e-1   # reduced proportionally from base.LR_W=5e-1
 LAMBDA_INIT = base.LAMBDA_INIT
 L_EST       = base.L_EST
 W_LOG_CLAMP = base.W_LOG_CLAMP

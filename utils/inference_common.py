@@ -2,23 +2,23 @@
 """
 inference_common.py
 ===================
-Helper CONDIVISO per gli script di inferenza (sintetico e reale).
+Shared helper for the inference scripts (synthetic and real).
 
-Contiene:
-  - auto-detect + costruzione del modello dal checkpoint
-    (LISTA / W-LISTA / LR-W-LISTA), con possibilita' di forzare il tipo;
-  - costruzione dell'operatore veloce (HolographyOperatorFast, DLPack);
-  - inferenza del modello + metrica di data-consistency con l'operatore
-    EFFETTIVO del modello (T per LISTA/W-LISTA, T_eff=(I+UV^H)T per LR-W-LISTA);
-  - baseline matched filter / ISTA;
-  - metriche (Signal/Clutter, MSE) e plot MIP-xy.
+Provides:
+  - auto-detection + construction of the model from a checkpoint
+    (LISTA / W-LISTA / LoRaW-LISTA), with the option to force the type;
+  - construction of the fast operator (HolographyOperatorFast, DLPack);
+  - model inference + a data-consistency metric using the model's EFFECTIVE
+    operator (T for LISTA/W-LISTA, T_eff=(I+UV^H)T for LoRaW-LISTA);
+  - matched-filter / ISTA baselines;
+  - metrics (Signal/Clutter, MSE) and MIP-xy plotting.
 
-Il tipo di modello viene riconosciuto ispezionando le chiavi di model_state:
-    'U_re'   presente -> LR-W-LISTA   (correzione low-rank)
-    'log_wx' presente -> W-LISTA      (pesi spaziali)
-    altrimenti        -> LISTA
-M e rank della correzione low-rank sono dedotti DIRETTAMENTE dalla forma di
-U_re (M, rank), quindi funziona anche con checkpoint che non salvano quei campi.
+The model type is recognized by inspecting the keys of model_state:
+    'U_re'   present -> LoRaW-LISTA   (low-rank correction)
+    'log_wx' present -> W-LISTA       (spatial weights)
+    otherwise        -> LISTA
+M and the rank of the low-rank correction are read DIRECTLY from the shape of
+U_re (M, rank), so it also works with checkpoints that do not store those fields.
 """
 
 import os
@@ -38,10 +38,10 @@ _PRETTY = {"lista": "LISTA", "wlista": "W-LISTA", "lrwlista": "LR-W-LISTA"}
 
 
 # ---------------------------------------------------------------------------
-# Auto-detect + costruzione modello
+# Auto-detect + model construction
 # ---------------------------------------------------------------------------
 def detect_kind(state_dict) -> str:
-    """Riconosce il tipo di modello dalle chiavi del state_dict."""
+    """Recognize the model type from the state_dict keys."""
     if "U_re" in state_dict:
         return "lrwlista"
     if "log_wx" in state_dict:
@@ -53,27 +53,27 @@ def build_model(ckpt, L_est, lambda_init, model_sel="auto"):
     """
     Costruisce il modello dal checkpoint.
 
-    model_sel : 'auto' (rileva dal checkpoint) oppure
-                'lista' / 'wlista' / 'lrwlista' (forza il tipo).
-    Ritorna (model, kind) con kind in {'lista','wlista','lrwlista'}.
+    model_sel : 'auto' (detect from the checkpoint) or
+                'lista' / 'wlista' / 'lrwlista' (force the type).
+    Returns (model, kind) with kind in {'lista','wlista','lrwlista'}.
     """
     sd = ckpt["model_state"]
     K  = int(ckpt["K"])
     detected = detect_kind(sd)
 
     if model_sel not in MODEL_CHOICES:
-        raise ValueError(f"--model deve essere uno di {MODEL_CHOICES}")
+        raise ValueError(f"--model must be one of {MODEL_CHOICES}")
     kind = detected if model_sel == "auto" else model_sel
 
     if model_sel != "auto" and model_sel != detected:
         raise ValueError(
             f"--model '{model_sel}' richiesto, ma il checkpoint contiene "
             f"parametri da '{detected}'. I pesi non combaciano: rilancia con "
-            f"--model auto oppure --model {detected}.")
+            f"--model auto or --model {detected}.")
 
     if kind == "lrwlista":
         Nx, Ny, Nz = int(ckpt["Nx"]), int(ckpt["Ny"]), int(ckpt["Nz"])
-        M, rank = sd["U_re"].shape          # dedotti dalla forma (robusto)
+        M, rank = sd["U_re"].shape          # read from the shape (robust)
         model = LRWLISTAHolography(K=K, L_est=L_est, Nx=Nx, Ny=Ny, Nz=Nz,
                                    M=int(M), rank=int(rank),
                                    lambda_init=lambda_init)
@@ -93,11 +93,11 @@ def pretty(kind: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Operatore veloce
+# Fast operator
 # ---------------------------------------------------------------------------
 def build_operator(ref, k, omega, x_img, y_img, z_img, mu0, batch_rx, device="cuda"):
-    """Operatore A/A^H. device 'cuda' -> HolographyOperatorFast (cupy);
-    'cpu' -> HolographyOperatorNumpy (NumPy puro, nessun CUDA richiesto)."""
+    """A/A^H operator. device 'cuda' -> HolographyOperatorFast (cupy);
+    'cpu' -> HolographyOperatorNumpy (pure NumPy, no CUDA required)."""
     nx, ny = ref["S21"].shape[:2]
     x_rx = ref["X"][:, 0]; y_rx = ref["Y"][0, :]
     xx, yy = np.meshgrid(x_rx, y_rx, indexing="ij")
@@ -121,7 +121,7 @@ def build_operator(ref, k, omega, x_img, y_img, z_img, mu0, batch_rx, device="cu
 # Inferenza modello (+ data-consistency con l'operatore EFFETTIVO del modello)
 # ---------------------------------------------------------------------------
 def _model_measure(model, z_t, op):
-    """y = T_eff z (LR-W-LISTA) oppure T z (LISTA / W-LISTA)."""
+    """y = T_eff z (LoRaW-LISTA) or T z (LISTA / W-LISTA)."""
     if hasattr(model, "measure"):
         return model.measure(z_t, op)
     return op.A_torch(z_t)
@@ -190,10 +190,10 @@ def _to_db(a):
 
 
 def save_outputs(out_npz, out_mat, x_img, y_img, z_img, payload):
-    """Salva i risultati sia in .npz sia in .mat (volumi 3D + immagini MIP-xy).
+    """Save the results both as .npz and .mat (3D volumes + MIP-xy images).
 
-    Nel .mat ogni volume viene salvato sia 'flat' sia rimodellato a (Nx,Ny,Nz),
-    piu' la proiezione MIP-xy (l'immagine effettivamente visualizzata).
+    In the .mat, each volume is stored both 'flat' and reshaped to (Nx,Ny,Nz),
+    plus the MIP-xy projection (the image actually displayed).
     """
     np.savez(out_npz, **payload)
 
@@ -213,16 +213,16 @@ def save_outputs(out_npz, out_mat, x_img, y_img, z_img, payload):
 
 def save_epoch_snapshot(out_dir, prefix, epoch, x_img, y_img, z_img,
                         z_model, z_true=None, z_mf=None, z_ista=None):
-    """Snapshot di riferimento per una singola epoca.
+    """Reference snapshot for a single epoch.
 
-    PNG = pannelli MIP-xy (GT, MF, ISTA, modello).
-    .mat / .npz = SOLO le immagini MIP-xy (compatte) di GT/MF/ISTA/modello
-    (no volumi 3D): sufficiente per il confronto epoca-per-epoca.
+    PNG = MIP-xy panels (GT, MF, ISTA, model).
+    .mat / .npz = ONLY the (compact) MIP-xy images of GT/MF/ISTA/model
+    (no 3D volumes): enough for the epoch-by-epoch comparison.
     """
     shape = (len(x_img), len(y_img), len(z_img))
     tag = f"recon_{prefix}_ep{epoch:03d}"
     png = os.path.join(out_dir, tag + ".png")
-    # ground truth escluso volutamente: non interessa nel monitoraggio per-epoca
+    # ground truth intentionally excluded: not needed in the per-epoch monitoring
     plot_panels(png, x_img, y_img, z_img, f"{prefix}  epoch {epoch}",
                 z_model, f"recon ep{epoch}", z_true=None, z_mf=z_mf, z_ista=z_ista)
 

@@ -2,48 +2,48 @@
 """
 lista_holography_lowrank.py
 ===========================
-LR-W-LISTA = W-LISTA + correzione low-rank supervisionata dell'operatore T.
+LoRaW-LISTA = W-LISTA + a supervised low-rank correction of the operator T.
 
-Motivazione
------------
-Con i PEC l'approssimazione di Born non vale: il modello lineare y = T z e'
-sistematicamente BIASED (lo scattering multiplo/ombreggiamento sposta soprattutto
-la FASE). W-LISTA agisce solo nel prox (regolarizzazione pesata): non puo'
-correggere un termine di data-fidelity polarizzato, perche' il gradiente resta
-mu * T^H (T z - b) con il T sbagliato in entrambe le occorrenze.
+Rationale
+---------
+For PEC targets the first-order Born approximation does not hold: the linear
+model y = T z is systematically biased (multiple scattering / shadowing shifts
+mostly the PHASE). W-LISTA acts only in the prox (weighted regularization) and
+cannot correct a biased data-fidelity term, since the gradient stays
+mu * T^H (T z - b) with the wrong T in both occurrences.
 
-Qui impariamo una PERTURBAZIONE A BASSO RANGO di T, lato-misura:
+Here we learn a LOW-RANK, measurement-side perturbation of T:
 
         T_eff = (I_M + U V^H) T ,     U, V in C^{M x r},   r << M
 
-Razionale dimensionale: T e' M x N con M (ricevitori) << N (voxel), quindi
-rank(T) <= M: tutto cio' che e' osservabile vive nel sottospazio M-dimensionale.
-Una correzione lato-misura (M x M, vincolata a rango r) e' percio' la piu'
-espressiva con il minimo dei parametri, e impara a rimappare le misure
-predette da Born verso quelle full-wave. Costo: due prodotti M x r per matvec,
-trascurabile rispetto alla fisica T (valutata on-the-fly).
+Dimensional rationale: T is M x N with M (receivers) << N (voxels), so
+rank(T) <= M: everything observable lives in the M-dimensional subspace.
+A measurement-side correction (M x M, constrained to rank r) is therefore the
+most expressive with the fewest parameters, and learns to remap the Born-
+predicted measurements towards the full-wave ones. Cost: two M x r products per
+matvec, negligible w.r.t. the physical operator T (evaluated on-the-fly).
 
-T resta FISICO e NON appreso: T_eff e' una perturbazione low-rank di un
-operatore fisico -> physics-consistency preservata.
+T stays PHYSICAL and non-learned: T_eff is a low-rank perturbation of a physical
+operator -> physics consistency is preserved.
 
-Parametri appresi (oltre a quelli W-LISTA: log_mu, log_lambda, log_wx/wy/wz):
+Learned parameters (in addition to the W-LISTA ones log_mu, log_lambda, log_wx/wy/wz):
     U_re, U_im : (M, r)
     V_re, V_im : (M, r)
-condivisi tra i layer (shared) per default -> pochi dati (8 scene), poca
-capacita' extra. Init U = 0  ->  T_eff = T  ->  a inizio training la rete
-coincide ESATTAMENTE con W-LISTA (regressione di sicurezza).
+shared across layers by default -> few data (8 scenes), little extra capacity.
+Init U = 0 -> T_eff = T -> at the start of training the network coincides
+EXACTLY with W-LISTA (safety regression).
 
-Algebra adjoint:
+Adjoint algebra:
     T_eff^H = T^H (I + U V^H)^H = T^H (I + V U^H)
     T_eff^H r = T^H ( r + V (U^H r) )
 
 API
 ---
 model = LRWLISTAHolography(K, L_est, Nx, Ny, Nz, M, rank=16)
-z_hat = model(b, op, warm_start=True)        # ricostruzione
-y_hat = model.measure(z_hat, op)             # T_eff z  (per data-consistency loss)
+z_hat = model(b, op, warm_start=True)        # reconstruction
+y_hat = model.measure(z_hat, op)             # T_eff z  (for the data-consistency loss)
 
-`op` deve essere un HolographyOperator(Fast) con A_torch / AH_torch.
+`op` must be a HolographyOperator(Fast) exposing A_torch / AH_torch.
 """
 
 import numpy as np
@@ -54,7 +54,7 @@ from lista_holography_weighted import WLISTAHolography, _complex_soft_thresh
 
 
 class LRWLISTAHolography(WLISTAHolography):
-    """W-LISTA con correzione low-rank lato-misura T_eff = (I + U V^H) T."""
+    """W-LISTA with a measurement-side low-rank correction T_eff = (I + U V^H) T."""
 
     def __init__(self,
                  K: int, L_est: float,
@@ -70,8 +70,8 @@ class LRWLISTAHolography(WLISTAHolography):
         self.rank = int(rank)
         self.corrected_warm_start = bool(corrected_warm_start)
 
-        # U init a 0  =>  Delta T = 0  =>  identico a W-LISTA all'inizio.
-        # V init piccolo random: appena U si muove, V riceve gradiente.
+        # U init to 0  =>  Delta T = 0  =>  identical to W-LISTA at the start.
+        # V init small random: as soon as U moves, V receives a gradient.
         self.U_re = nn.Parameter(torch.zeros(self.M, self.rank))
         self.U_im = nn.Parameter(torch.zeros(self.M, self.rank))
         self.V_re = nn.Parameter(v_init_std * torch.randn(self.M, self.rank))
@@ -108,7 +108,7 @@ class LRWLISTAHolography(WLISTAHolography):
 
         if warm_start:
             if self.corrected_warm_start:
-                z = self._TeffH(b, op)             # all'init (U=0) == A^H b
+                z = self._TeffH(b, op)             # at init (U=0) == A^H b
             else:
                 z = op.AH_torch(b)
         else:
@@ -130,11 +130,11 @@ class LRWLISTAHolography(WLISTAHolography):
 
     # ------------------------------------------------------------------
     def lowrank_stats(self):
-        """Norme/diagnostica della correzione low-rank."""
+        """Norms/diagnostics of the low-rank correction."""
         U, V = self._UV()
         with torch.no_grad():
             sv = torch.linalg.svdvals((U @ V.conj().t())).cpu().numpy() \
-                 if self.M <= 4096 else None   # SVD piena solo se M piccolo
+                 if self.M <= 4096 else None   # full SVD only if M is small
             return dict(
                 U_fro=float(U.abs().pow(2).sum().sqrt()),
                 V_fro=float(V.abs().pow(2).sum().sqrt()),
@@ -143,9 +143,9 @@ class LRWLISTAHolography(WLISTAHolography):
             )
 
     def lowrank_frob_sq(self):
-        """||U V^H||_F^2 (differenziabile) per regolarizzazione.
-        ||U V^H||_F^2 = tr(V U^H U V^H) = || (U^H U)^{1/2} ... ||  ->  usiamo
-        l'identita': ||U V^H||_F^2 = sum_{ij} |.|^2 = tr( (U^H U)(V^H V) ).
+        """||U V^H||_F^2 (differentiable) for regularization.
+        We use the identity
+        ||U V^H||_F^2 = sum_{ij} |.|^2 = tr( (U^H U)(V^H V) ).
         """
         U, V = self._UV()
         GU = U.conj().t() @ U          # (r, r)

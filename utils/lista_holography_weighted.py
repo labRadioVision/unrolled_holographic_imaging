@@ -4,36 +4,36 @@ lista_holography_weighted.py
 ============================
 W-LISTA (Weighted LISTA) for holographic reconstruction.
 
-Strategia (A) — Factorized separable per-voxel weights.
+Strategy (A) - factorized separable per-voxel weights.
 
-Ogni layer k applica un prox L1 pesato:
-    |diag(w_k) z|_1 ,  con w_k(x,y,z) = w_k^(x)(x) · w_k^(y)(y) · w_k^(z)(z)
+Each layer k applies a weighted L1 prox:
+    |diag(w_k) z|_1 ,  with w_k(x,y,z) = w_k^(x)(x) * w_k^(y)(y) * w_k^(z)(z)
 
-cioè i pesi spaziali sono il PRODOTTO ESTERNO di tre vettori 1D, uno per asse:
-    w_k^(x) ∈ R^Nx ,  w_k^(y) ∈ R^Ny ,  w_k^(z) ∈ R^Nz
+i.e. the spatial weights are the OUTER PRODUCT of three 1D vectors, one per axis:
+    w_k^(x) in R^Nx ,  w_k^(y) in R^Ny ,  w_k^(z) in R^Nz
 
-Parametri apprendibili (tutti log-parametrizzati per restare positivi):
-    log_mu     : (K,)        step size ISTA
-    log_lambda : (K,)        base-threshold moltiplicativo
-    log_wx     : (K, Nx)     pesi lungo x
-    log_wy     : (K, Ny)     pesi lungo y
-    log_wz     : (K, Nz)     pesi lungo z
+Learnable parameters (all log-parametrized to stay positive):
+    log_mu     : (K,)        ISTA step size
+    log_lambda : (K,)        multiplicative base threshold
+    log_wx     : (K, Nx)     weights along x
+    log_wy     : (K, Ny)     weights along y
+    log_wz     : (K, Nz)     weights along z
 
-Totale per K=10, Nx=161, Ny=81, Nz=65:
-    K*(2 + Nx + Ny + Nz) = 10 * (2 + 307) = 3090 parametri.
+Total for K=10, Nx=161, Ny=81, Nz=65:
+    K*(2 + Nx + Ny + Nz) = 10 * (2 + 307) = 3090 parameters.
 
-Confronto con LISTA uniforme originale: 2K = 20 parametri.
+Compared with the uniform LISTA: 2K = 20 parameters.
 
 Forward layer k:
     residual = A z - b
     grad     = A^H residual
     z        = z - mu_k * grad
-    thr_k    = lambda_k * W_k       (W_k è il campo 3D fattorizzato, flattened)
-    z        = soft_thresh_modulus(z, thr_k)    # threshold per-voxel
+    thr_k    = lambda_k * W_k       (W_k is the factorized 3D field, flattened)
+    z        = soft_thresh_modulus(z, thr_k)    # per-voxel threshold
 
 Init:
-    log_w* = 0  ⇒  w* = 1  ⇒  soglia uniforme ⇒  comportamento iniziale
-    identico a LISTAHolography (grazie a questo init il training parte sano).
+    log_w* = 0  =>  w* = 1  =>  uniform threshold  =>  initial behaviour
+    identical to LISTAHolography (this init makes training start well).
 """
 
 import numpy as np
@@ -99,7 +99,7 @@ class WLISTAHolography(nn.Module):
         self.log_mu     = nn.Parameter(torch.full((K,), float(np.log(mu0))))
         self.log_lambda = nn.Parameter(torch.full((K,), float(np.log(lambda_init))))
 
-        # init pesi a 1 ⇒ log=0 ⇒ W_k uniforme ⇒ equivalente a LISTA standard
+        # init weights to 1 => log=0 => uniform W_k => equivalent to standard LISTA
         self.log_wx = nn.Parameter(torch.zeros(K, self.Nx))
         self.log_wy = nn.Parameter(torch.zeros(K, self.Ny))
         self.log_wz = nn.Parameter(torch.zeros(K, self.Nz))

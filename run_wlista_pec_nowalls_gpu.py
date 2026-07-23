@@ -1,24 +1,23 @@
 # -*- coding: utf-8 -*-
 """
 run_wlista_pec_nowalls_gpu.py
-===================================
-Versione FULL-GPU di W-LISTA / LISTA sui dati sintetici "nowalls" (PEC,
-free-space). Adattamento di run_wlista_synthetic_gpu.py alla nuova coppia di
-file dati (E_total_freespace_nowalls.mat + E_total_Ken_PEC_nowalls.mat).
+=============================
+Full-GPU training of W-LISTA / LISTA on the synthetic "nowalls" data (PEC,
+free space): E_total_freespace_nowalls.mat + E_total_Ken_PEC_nowalls.mat.
 
-  - HolographyOperatorFast (DLPack zero-copy) + modello/dati su CUDA.
-  - Split: TUTTE le 11 posizioni in training; pos 7 come validation/output.
-  - 'best' su VALIDATION loss (pos 7).
-  - Da REF_EPOCH_START salva, per ogni epoca, la ricostruzione di riferimento
-    (pos 7) + MIP di MF/ISTA/modello in PNG/npz/mat (results_synthetic_nowalls_gpu/epoch_recon).
-  - Riusa loader/plot del modulo base nowalls
-    (import base_pec_nowalls as base). NESSUN file reale richiesto:
-    geometria RX e frequenza sono sintetiche (vedi il modulo base).
+  - Fast holographic operator (HolographyOperatorFast, DLPack zero-copy), with
+    model and data on CUDA.
+  - Split: all 11 positions used for training; position 7 for validation/output.
+  - "best" checkpoint selected on the validation loss (position 7).
+  - From REF_EPOCH_START, saves per epoch the reference reconstruction (pos 7)
+    and the MIP of MF/ISTA/model (PNG/npz/mat in results_synthetic_nowalls_gpu/epoch_recon).
+  - Reuses the loaders/plotting of the base module (import base_pec_nowalls as base).
+    No real-measurement file is required: RX geometry and frequency are synthetic.
 
 Run
 ---
-  .conda\\python.exe run_wlista_pec_nowalls_gpu.py > wlista_synthetic_nowalls_gpu.log 2>&1
-  .conda\\python.exe run_wlista_pec_nowalls_gpu.py --model lista
+  python run_wlista_pec_nowalls_gpu.py > wlista_synthetic_nowalls_gpu.log 2>&1
+  python run_wlista_pec_nowalls_gpu.py --model lista
 """
 
 import os, sys, time, argparse, glob, re
@@ -42,19 +41,18 @@ os.makedirs(CKPT_DIR, exist_ok=True)
 base.OUT_DIR  = OUT_DIR
 base.CKPT_DIR = CKPT_DIR
 
-base.TRAIN_IDX = list(range(11))            # TUTTE le 11 posizioni in training
-base.VAL_IDX   = [7]                         # pos 7 per validation/plot
+base.TRAIN_IDX = list(range(11))            # all 11 positions used for training
+base.VAL_IDX   = [7]                         # position 7 for validation/plot
 
 NX, NY, NZ = base.NX, base.NY, base.NZ
 K           = base.K
 N_EPOCHS    = base.N_EPOCHS
-LR          = 1e-2   # era base.LR=5e-2: ridotto (stesso fix applicato ai run_*_ken_grasso.py,
-                      # LR alto causava collasso di z — vedi SESSION_LOG.md)
-LR_W        = 2.5e-1   # era base.LR_W=5e-1: ridotto in proporzione
+LR          = 1e-2     # reduced from base.LR=5e-2 (a higher LR was observed to collapse z)
+LR_W        = 2.5e-1   # reduced proportionally from base.LR_W=5e-1
 LAMBDA_INIT = base.LAMBDA_INIT
 L_EST       = base.L_EST
 W_LOG_CLAMP = base.W_LOG_CLAMP
-REF_EPOCH_START = 2     # da questa epoca salva recon di riferimento (pos 7) per epoca
+REF_EPOCH_START = 2     # from this epoch on, save the per-epoch reference reconstruction (pos 7)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -120,7 +118,7 @@ def train(op, b_tr, z_tr, b_va, z_va, model_type, ckpt_name, resume=None):
     b_va = [x.to(DEVICE) for x in b_va]; z_va = [x.to(DEVICE) for x in z_va]
     N = len(b_tr)
 
-    # --- caso reference per il monitoraggio per-epoca (pos 7) ---
+    # --- reference case for per-epoch monitoring (pos 7) ---
     REF_DIR = os.path.join(OUT_DIR, "epoch_recon"); os.makedirs(REF_DIR, exist_ok=True)
     ref_i  = base.VAL_IDX.index(7) if 7 in base.VAL_IDX else 0
     b_ref  = b_va[ref_i] if b_va else b_tr[0]
@@ -166,7 +164,7 @@ def train(op, b_tr, z_tr, b_va, z_va, model_type, ckpt_name, resume=None):
         tr_loss = float(agg) / N
         loss_history.append(tr_loss); val_history.append(vloss)
 
-        # snapshot + S/C per ogni epoca >= REF_EPOCH_START
+        # snapshot + S/C for every epoch >= REF_EPOCH_START
         sc_model = float("nan")
         if epoch >= REF_EPOCH_START:
             model.eval()
@@ -205,8 +203,8 @@ def train(op, b_tr, z_tr, b_va, z_va, model_type, ckpt_name, resume=None):
 
 
 def find_latest_ckpt(ckpt_dir, ckpt_name):
-    """Trova il checkpoint per-epoca a epoca piu' alta (<ckpt_name>_epNNN.pt).
-    Esclude _best.pt. Ritorna il path oppure None se non ce ne sono."""
+    """Return the highest-epoch per-epoch checkpoint (<ckpt_name>_epNNN.pt),
+    excluding _best.pt. Returns the path, or None if none exist."""
     pat = os.path.join(ckpt_dir, f"{ckpt_name}_ep*.pt")
     best_ep, best_path = -1, None
     for p in glob.glob(pat):
@@ -220,29 +218,29 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", choices=["wlista", "lista"], default="wlista")
     ap.add_argument("--resume", default=None,
-                    help="path checkpoint esplicito (override dell'auto-resume)")
+                    help="explicit checkpoint path (overrides auto-resume)")
     ap.add_argument("--fresh", action="store_true",
-                    help="ignora i checkpoint esistenti e riparte da zero")
+                    help="ignore existing checkpoints and start from scratch")
     ap.add_argument("--infer-only", default=None)
     args = ap.parse_args()
 
     CKPT_NAME = f"{args.model}_synthetic_nowalls_gpu"
 
-    # Resume automatico di default: all'avvio riprende dall'ultima epoca
-    # salvata. --resume <path> forza un checkpoint specifico; --fresh forza
-    # il training da zero.
+    # Auto-resume by default: on start, resume from the last saved epoch.
+    # --resume <path> forces a specific checkpoint; --fresh forces training
+    # from scratch.
     if args.fresh:
-        print("[fresh] training da zero (checkpoint ignorati)")
+        print("[fresh] training from scratch (checkpoints ignored)")
         args.resume = None
     elif args.resume and args.resume != "auto":
-        print(f"[resume] checkpoint esplicito: {args.resume}")
+        print(f"[resume] explicit checkpoint: {args.resume}")
     else:
         latest = find_latest_ckpt(CKPT_DIR, CKPT_NAME)
         if latest:
-            print(f"[auto-resume] riprendo da: {latest}")
+            print(f"[auto-resume] resuming from: {latest}")
             args.resume = latest
         else:
-            print("[auto-resume] nessun checkpoint trovato — parto da zero")
+            print("[auto-resume] no checkpoint found - starting from scratch")
             args.resume = None
     t_start = time.time()
     print("=" * 68)

@@ -1,44 +1,40 @@
 # -*- coding: utf-8 -*-
 """
-run_wlista_measurements_dic2024.py
-================================
-W-LISTA training su N=8 misure (Nov-Dic 2024) con modello corpo realistico.
+base_measurements_dic2024.py
+============================
+Base module (data loaders + training/plotting) for W-LISTA on the N=8 real
+measurements (Nov-Dec 2024) with a realistic body model.
 
-Dataset di training:
-  - Spostamento laterale (x):
-      21_11_2024  x_c~2.50m  (posizione di riferimento)
+Training dataset:
+  - Lateral displacement (x):
+      21_11_2024  x_c~2.50m  (reference position)
       10_12_2024  x_c~2.11m
       11_12_2024  x_c~1.70m
       12_12_2024  x_c~1.30m
       13_12_2024  x_c~0.89m
-  - Spostamento in profondita' (z):
+  - Depth displacement (z):
       05_12_2024  z_c~1.43m
       07_12_2024  z_c~1.15m
       09_12_2024  z_c~0.85m
 
-z_true: modello corpo parametrico (generate_z_true.py --mode body)
-        Delta_eps = 1.5297  (tessuto soft/muscolo a 2.45 GHz)
-        ~6200-6350 voxel attivi per misura (~0.74% della griglia)
+z_true: parametric body model (generate_z_true.py --mode body)
+        Delta_eps = 1.5297  (soft tissue/muscle at 2.45 GHz)
+        ~6200-6350 active voxels per measurement (~0.74% of the grid)
 
-Rispetto a v1/v2 (parallelepipedi, Delta_eps=8e-4):
-  - Contrasto 1900x piu' alto -> gradiente su w molto piu' forte
-  - 8 misure (vs 5) con diversita' laterale E in profondita'
-  - Stessi iperparametri v2: LR_W=5e-1 (10x), LAMBDA_INIT=1e-4
-
-Checkpoint: wlista_multimeas_dec2024_*  (non sovrascrive v1/v2)
+Checkpoints: wlista_multimeas_dec2024_*
 
 Run
 ---
-  .conda\\python.exe run_wlista_measurements_dic2024.py > wlista_dec2024.log 2>&1
+  python run_wlista_measurements_dic2024.py > wlista_dec2024.log 2>&1
 
 Resume
 ------
-  .conda\\python.exe run_wlista_measurements_dic2024.py --resume checkpoints_lista\\wlista_multimeas_dec2024_ep010.pt
+  python run_wlista_measurements_dic2024.py --resume checkpoints_lista/wlista_multimeas_dec2024_ep010.pt
 
 Infer-only
 ----------
-  .conda\\python.exe run_wlista_measurements_dic2024.py \\
-        --infer-only checkpoints_lista\\wlista_multimeas_dec2024_best.pt \\
+  python run_wlista_measurements_dic2024.py \\
+        --infer-only checkpoints_lista/wlista_multimeas_dec2024_best.pt \\
         --infer-meas empty_30_11_2024.mat
 """
 
@@ -51,10 +47,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
-# Importazioni GPU — opzionali: falliscono silenziosamente su macchine
-# senza CUDA. Le funzioni di training che le usano (build_operator,
-# train_wlista) daranno errore a runtime se chiamate senza GPU, ma le
-# costanti e load_b_scatter restano disponibili per l'inferenza CPU.
+# GPU imports - optional: they fail silently on machines without CUDA. The
+# training functions that use them (build_operator, train_wlista) will error at
+# runtime if called without a GPU, but the constants and load_b_scatter stay
+# available for CPU inference.
 try:
     import cupy as cp
     from holography_operator       import HolographyOperator
@@ -81,7 +77,7 @@ os.makedirs(CKPT_DIR, exist_ok=True)
 
 EMPTY_FILE = os.path.join(DATA_DIR, "empty_20_11_2024.mat")
 
-# 8 misure: 5 spostamenti laterali (x) + 3 spostamenti in profondita' (z)
+# 8 measurements: 5 lateral displacements (x) + 3 depth displacements (z)
 MEAS_FILES = [
     os.path.join(DATA_DIR, "empty_21_11_2024.mat"),   # x_c~2.50m  z_c~1.71m (ref laterale)
     os.path.join(DATA_DIR, "empty_10_12_2024.mat"),   # x_c~2.11m  z_c~1.71m
@@ -124,19 +120,19 @@ K           = 10
 N_EPOCHS    = 30
 LR          = 5e-2    # LR per mu_k, lambda_k
 LR_W        = 5e-1    # LR per w_x, w_y, w_z (10x piu' alto — fix gradiente debole)
-LAMBDA_INIT = 1e-4    # soglia iniziale (< MF output scale ~8e-4)
+LAMBDA_INIT = 1e-4    # initial threshold (< MF output scale ~8e-4)
 L_EST       = 1.141e4
 W_LOG_CLAMP = 5.0     # clamp log_w in [-W_LOG_CLAMP, +W_LOG_CLAMP]
               #   => w in [exp(-5), exp(+5)] = [0.0067, 148.4]
-              #   Previene divergenza esponenziale dei pesi spaziali.
+              #   Prevents exponential divergence of the spatial weights.
 
-# Scaling z_true: il modello corpo usa Delta_eps=1.5297 (tessuto soft),
-# ma il MF output e' fisicamente limitato a ~8e-4. Il mismatch di scala
-# (~1900x) rende il loss non convergente al valore esatto ma non altera
-# il segno dei gradienti (target -> peso scende, background -> peso sale).
-# Impostare ZTRUE_SCALE=8e-4 per normalizzare z_true alla scala MF,
-# oppure None per usare il contrasto fisico originale.
-ZTRUE_SCALE = None    # es: 8e-4  oppure  None (no scaling)
+# z_true scaling: the body model uses Delta_eps=1.5297 (soft tissue), but the
+# MF output is physically limited to ~8e-4. The scale mismatch (~1900x) makes
+# the loss not converge to the exact value, but does not change the sign of the
+# gradients (target -> weight decreases, background -> weight increases).
+# Set ZTRUE_SCALE=8e-4 to normalize z_true to the MF scale, or None to keep the
+# original physical contrast.
+ZTRUE_SCALE = None    # e.g. 8e-4  or  None (no scaling)
 
 CKPT_NAME   = "wlista_multimeas_dec2024"
 
@@ -272,7 +268,7 @@ def train_wlista(op, b_list, z_list, resume_ckpt=None):
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optim.step()
 
-        # clamp log_w per evitare divergenza esponenziale dei pesi
+        # clamp log_w to avoid exponential divergence of the weights
         with torch.no_grad():
             model.log_wx.clamp_(-W_LOG_CLAMP, W_LOG_CLAMP)
             model.log_wy.clamp_(-W_LOG_CLAMP, W_LOG_CLAMP)
@@ -319,7 +315,7 @@ def train_wlista(op, b_list, z_list, resume_ckpt=None):
                 "train_dates": DATES,
             }, os.path.join(CKPT_DIR, f"{CKPT_NAME}_best.pt"))
 
-        # checkpoint ad ogni epoca
+        # checkpoint at every epoch
         torch.save({
             "epoch": epoch, "K": K,
             "Nx": NX, "Ny": NY, "Nz": NZ,
@@ -351,8 +347,8 @@ def train_wlista(op, b_list, z_list, resume_ckpt=None):
 # ===========================================================================
 
 def _resolve_infer_meas(meas_paths, ztrue_paths, ref):
-    """Load b_scatter da una lista di .mat (basename o path assoluto).
-    Returns (b_list, z_list, dates) — z_list entries = None se nessun ztrue."""
+    """Load b_scatter from a list of .mat files (basename or absolute path).
+    Returns (b_list, z_list, dates); z_list entries = None if no ztrue."""
     b_list, z_list, dates = [], [], []
     for i, mp in enumerate(meas_paths):
         if not os.path.isabs(mp):
@@ -432,7 +428,7 @@ def plot_results(b_list, z_list, model, op, loss_history, dates_override=None, c
     N_plot = len(b_list)
     print(f"\nGenerating plots ({N_plot} measurements) ...")
 
-    # inference per tutti i metodi su tutte le misure
+    # inference for all methods on all measurements
     z_mf_list, z_ista_list, z_wlista_list = [], [], []
     for b_np, date in zip(b_list, plot_dates):
         print(f"  MF+ISTA+W-LISTA  {date} ...")
@@ -509,12 +505,12 @@ def plot_results(b_list, z_list, model, op, loss_history, dates_override=None, c
         axes2[3].set_xticks(x)
         axes2[3].set_xticklabels(plot_dates[:len(sc_wl)], rotation=30, fontsize=7)
         axes2[3].set_ylabel("S/C ratio")
-        axes2[3].set_title("Signal/clutter per misura")
+        axes2[3].set_title("Signal/clutter per measurement")
         axes2[3].legend(fontsize=8)
     else:
         axes2[3].text(0.5, 0.5, "No z_true\n(metrics N/A)",
                       ha='center', va='center', transform=axes2[3].transAxes)
-        axes2[3].set_title("Signal/clutter per misura")
+        axes2[3].set_title("Signal/clutter per measurement")
 
     # --- pesi learned (heatmap layer-axis × spatial-axis) ---
     fig3, axes3 = plt.subplots(1, 3, figsize=(18, 4))
@@ -579,7 +575,7 @@ if __name__ == "__main__":
     print("  Body model: Delta_eps=1.53 | LR_W=5e-1 | LAMBDA_INIT=1e-4")
     print("=" * 65)
 
-    # infer-only con misure esterne: bastala reference per la geometria
+    # infer-only with external measurements: the reference is enough for the geometry
     if args.infer_only and args.infer_meas:
         print("Loading reference file only (infer-only mode) ...")
         ref   = sio.loadmat(EMPTY_FILE)
@@ -624,7 +620,7 @@ if __name__ == "__main__":
                                loss_history, dates_override=infer_dates,
                                ckpt_tag=ckpt_tag)
 
-        # salva z_wlista e z_mf in .mat (uno per misura)
+        # save z_wlista and z_mf as .mat (one per measurement)
         print("\nSaving .mat files ...")
         for date, z_mf, z_wl in zip(infer_dates, z_mf_list, z_wlista_list):
             mat_path = os.path.join(OUT_DIR, f"{prefix}_{date}_z.mat")
